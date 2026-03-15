@@ -78,7 +78,7 @@ def ask_model(question):
     print("\n🤖 Thinking...\n")
 
     response = ollama.chat(
-        model="mistral",
+        model="phi3:mini",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": question}
