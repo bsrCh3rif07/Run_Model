@@ -1,89 +1,142 @@
 import json
-from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# -----------------------------
+# ---------------------------------
 # Load Cybersecurity Keywords
-# -----------------------------
+# ---------------------------------
 with open("cyber_keywords.json", "r") as f:
     cyber_data = json.load(f)
 
-# Flatten all categories into a single list
 keywords = []
 for category in cyber_data["cybersecurity_keywords"].values():
     keywords.extend(category)
 
-# -----------------------------
-# Function to check if query is cybersecurity related
-# -----------------------------
-def is_cybersecurity_query(query):
-    query_lower = query.lower()
-    for keyword in keywords:
-        if keyword.lower() in query_lower:
-            return True
-    return False
+keywords = set(k.lower() for k in keywords)
 
-# -----------------------------
-# Load Mistral 7B Model
-# -----------------------------
-model_name = "mistralai/Mistral-7B-Instruct"
+# ---------------------------------
+# Greetings
+# ---------------------------------
+greetings = [
+    "hello",
+    "hi",
+    "hey",
+    "good morning",
+    "good evening",
+    "good afternoon"
+]
+
+# ---------------------------------
+# Classify Query
+# ---------------------------------
+def classify_query(query):
+
+    query = query.lower()
+
+    for g in greetings:
+        if g in query:
+            return "greeting"
+
+    for keyword in keywords:
+        if keyword in query:
+            return "cyber"
+
+    return "blocked"
+
+
+# ---------------------------------
+# Load Model
+# ---------------------------------
+model_name = "mistralai/Mistral-7B-Instruct-v0.2"
+
+print("Loading model...")
 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16)
+
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    device_map="auto",
+    dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+)
+
 model.eval()
 
-# -----------------------------
-# System Prompt (Optional but recommended)
-# -----------------------------
+print("Model loaded successfully")
+
+
+# ---------------------------------
+# System Prompt
+# ---------------------------------
 SYSTEM_PROMPT = """
 You are a cybersecurity expert assistant.
-You only answer questions about:
+
+You ONLY answer questions about:
 - malware
-- threat intelligence
 - vulnerabilities
-- digital forensics
+- threat intelligence
 - incident response
+- digital forensics
 - network security
 - cloud security
 
-If the question is outside cybersecurity, refuse to answer.
+If the question is unrelated to cybersecurity,
+politely refuse to answer.
 """
 
-# -----------------------------
-# Query the model
-# -----------------------------
-def ask_model(user_question, max_tokens=300):
-    # Step 1: Check if query is cybersecurity related
-    if not is_cybersecurity_query(user_question):
-        return "This assistant only answers cybersecurity related questions."
 
-    # Step 2: Combine system prompt + user question
-    prompt = SYSTEM_PROMPT + "\n\nQuestion: " + user_question + "\nAnswer:"
+# ---------------------------------
+# Ask Model
+# ---------------------------------
+def ask_model(question):
 
-    # Step 3: Tokenize and generate
-    inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
+    query_type = classify_query(question)
+
+    if query_type == "greeting":
+        return "Hello 👋 I am a cybersecurity assistant. Ask me anything about cybersecurity."
+
+    if query_type == "blocked":
+        return "❌ This assistant only answers cybersecurity questions."
+
+    prompt = SYSTEM_PROMPT + "\n\nUser: " + question + "\nAssistant:"
+
+    inputs = tokenizer(prompt, return_tensors="pt")
+
+    print("\n🤖 Thinking...\n")
+
+
     with torch.no_grad():
+
         output = model.generate(
             **inputs,
-            max_new_tokens=max_tokens,
-            do_sample=True,
+            max_new_tokens=200,
             temperature=0.7,
-            top_p=0.9
+            top_p=0.9,
+            do_sample=True,
+            pad_token_id=tokenizer.eos_token_id
         )
 
-    answer = tokenizer.decode(output[0], skip_special_tokens=True)
-    # Remove the prompt part from the answer
-    answer = answer.replace(prompt, "").strip()
-    return answer
+    response = tokenizer.decode(output[0], skip_special_tokens=True)
 
-# -----------------------------
-# Example Usage
-# -----------------------------
+    response = response.replace(prompt, "").strip()
+
+    return response
+
+
+# ---------------------------------
+# Chat Loop
+# ---------------------------------
 if __name__ == "__main__":
+
+    print("\nCybersecurity AI Assistant Ready")
+    print("Type 'exit' to quit\n")
+
     while True:
-        user_input = input("\nAsk a question: ")
+
+        user_input = input("Ask: ")
+
         if user_input.lower() in ["exit", "quit"]:
             break
 
-        response = ask_model(user_input)
-        print("\nResponse:", response)
+        answer = ask_model(user_input)
+
+        print("\nResponse:\n", answer)
